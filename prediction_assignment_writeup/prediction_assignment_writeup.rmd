@@ -1,0 +1,152 @@
+---
+title: "Prediction Assignment Writeup"
+author: "Dany Guevara"
+date: "January 26, 2016"
+output: html_document
+---
+
+### Introduction
+
+As part of the course project for Coursera's Machine Learning MOOC, we will use data from accelerorators on the belt, forearm, arm, and dumbbell of 6 participants to quantify how well they did a particular exercise.
+
+### Getting the Data
+
+The data for this project comes from this source: 
+
+http://groupware.les.inf.puc-rio.br/har.
+
+The training data for this project are available here:
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv
+
+The test data are available here:
+
+https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv
+
+```{r}
+# Download data.
+url_raw_training = "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv";
+file_dest_training = "pml-training.csv";
+#download.file(url=url_raw_training, destfile=file_dest_training, method="curl");
+url_raw_testing = "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv";
+file_dest_testing = "pml-testing.csv";
+#download.file(url=url_raw_testing, destfile=file_dest_testing, method="curl");
+```
+
+### Cleaning the Data
+
+We are asked to use the "classe" variable in the training set as the response, but we can use any of the other variables as predictors. So, we start by reading and previewing the training and testing data.
+
+```{r}
+setwd("C:\\PiDan\\Development\\RProgramming\\practical_machine_learning\\course_project\\prediction_assignment_writeup\\");
+
+# Import the data treating empty values as NA.
+df_training_raw = read.csv(file_dest_training,sep=",",na.strings = c("NA",""),header=TRUE);
+dim(df_training_raw);
+#View(df_training_raw);
+df_testing_raw = read.csv(file_dest_testing,sep=",",na.strings = c("NA",""),header=TRUE);
+dim(df_training_raw);
+#View(df_training_raw);
+
+# Verify that the column names (excluding classe and problem_id) are identical in the training and test set.
+colnames_training_raw = colnames(df_training_raw);
+colnames_testing_raw = colnames(df_testing_raw);
+all.equal(colnames_training_raw[1:length(colnames_training_raw)-1], colnames_testing_raw[1:length(colnames_training_raw)-1]);
+```
+
+The review of the data shows that there are a lot of NA columns. Additionally, the first 7 columns are not readings from the accelorators, but are related to how, when, and from whom the data was collected. For the purpose of predicting, we will drop the first 7 columns and all NA columns.
+
+```{r}
+# Drop the first 7 columns as they're unnecessary for predicting.
+df_training_clean = df_training_raw[,8:length(colnames(df_training_raw))];
+df_testing_clean = df_testing_raw[,8:length(colnames(df_testing_raw))];
+
+# Drop columns containing any NA columns
+df_training_clean = df_training_clean[,colSums(is.na(df_training_clean)) == 0];
+df_testing_clean = df_testing_clean[,colSums(is.na(df_testing_clean)) == 0];
+
+# Show remaining columns.
+dim(df_training_clean);
+colnames_training_clean = colnames(df_training_clean);
+colnames_training_clean;
+dim(df_testing_clean);
+colnames_testing_clean = colnames(df_testing_clean);
+colnames_testing_clean;
+
+# Verify that the column names (excluding classe and problem_id) are identical in the training and test set.
+all.equal(colnames_training_clean[1:length(colnames_training_clean)-1], colnames_testing_clean[1:length(colnames_testing_clean)-1]);
+```
+
+### Splitting the Data
+
+We are asked to use cross validation to get an estimate of the out of sample error. So, we will split the training data into training and validation.
+
+```{r message=FALSE}
+library(caret);
+library(rpart);
+library(rattle);
+library(rpart.plot);
+set.seed(126);
+inTrain = createDataPartition(df_training_clean$classe, p=0.60, list=FALSE);
+training = df_training_clean[inTrain,];
+validation = df_training_clean[-inTrain,];
+```
+
+### Model Building
+
+We will try building models with classification trees and random forest.
+
+#### Classification Tree
+
+```{r message=FALSE}
+classFit = train(training$classe ~ ., data = training, method="rpart");
+print(classFit, digits = 4);
+print(classFit$finalModel, digits = 4);
+fancyRpartPlot(classFit$finalModel);
+```
+
+#### Random Forest
+
+```{r message=FALSE}
+# Warning: Training with random forest takes a long time. We save the Random Forest fit to a file so the document can be
+# edited without running it every time.
+#randomForestFit <- train(training$classe ~ ., data = training, method="rf");
+#save(randomForestFit, file="randomForestFit.RData");
+
+load(file = "./randomForestFit.RData");
+print(randomForestFit, digits = 4);
+```
+
+#### Model Comparison
+
+The classification tree model had an accuracy of 0.5737 and the random forest model had an accuracy of 0.9858. We will use the random forest for the rest of the analysis.
+
+### Out of Sample Error Estimation with Cross Validation Set
+
+We will try to get a better model by standardizing the data and using cross validation with the training data. Using the train method, we can use the preProcess parameter to standardized and the trControl parameter to specify how the cross validation should be done.
+
+```{r message=FALSE}
+#randomForestFitStandardizedCrossValidation = train(training$classe ~ ., method="rf", preProcess=c("center", "scale"), trControl=trainControl(method = "cv", number = 5), data = training);
+#save(randomForestFitStandardizedCrossValidation, file="randomForestFitStandardizedCrossValidation.RData");
+
+load(file = "./randomForestFitStandardizedCrossValidation.RData");
+print(randomForestFitStandardizedCrossValidation, digits = 4);
+```
+
+We will get an estimate of the out of sample error by using the validation data.
+
+```{r message=FALSE}
+predictions = predict(randomForestFitStandardizedCrossValidation, newdata = validation);
+print(confusionMatrix(predictions, validation$classe), digits=4);
+```
+
+The out of sample error is estimated to be 1 - 0.9929 = 0.0071.
+
+### Prediction
+
+We use our model to predict the testing set.
+
+```{r}
+testing_predictions = predict(randomForestFitStandardizedCrossValidation, newdata = df_testing_clean);
+testing_predictions;
+```
